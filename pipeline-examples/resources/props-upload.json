@@ -2,12 +2,12 @@
   "files": [
     {
       "pattern": "pipeline-examples/resources/ArtifactoryPipeline.zip",
-      "target": "libs-snapshot-local",
+      "target": "generic-binaries-local/zVision/Installer",
       "props": "p1=v1;p2=v2"
     },
     {
       "pattern": "pipeline-examples/resources/ArtifactoryPipelineNoProps.zip",
-      "target": "libs-snapshot-local"
+      "target": "generic-binaries-local/zVision/Installer"
     }
   ]
 }

@@ -3,7 +3,7 @@ pipeline {
     stages {
         stage('Clone'){
             steps {
-                git url: 'https://github.com/jfrog/project-examples.git'
+                git url: 'https://github.com/varaprasad-ctrl/jenkins-examples.git'
             }
         }
 
@@ -11,11 +11,14 @@ pipeline {
             steps {
                 script{
                     // Obtain an Artifactory server instance, defined in Jenkins --> Manage:
-                    def server = Artifactory.server SERVER_ID
+                    // def server = Artifactory.server SERVER_ID
+
+                    // Define an Artifactory server instance.
+                    def server = Artifactory.newServer url: artifactoryUrl, username: username, password: password
 
                     // Read the download and upload specs:
-                    def downloadSpec = readFile 'jenkins-examples/pipeline-examples/resources/props-download.json'
-                    def uploadSpec = readFile 'jenkins-examples/pipeline-examples/resources/props-upload.json'
+                    def downloadSpec = readFile 'pipeline-examples/resources/props-download.json'
+                    def uploadSpec = readFile 'pipeline-examples/resources/props-upload.json'
 
                     // Download files from Artifactory:
                     def buildInfo1 = server.download spec: downloadSpec

@@ -1,0 +1,54 @@
+pipeline {
+    agent any
+    stages {
+        stage('Test Configure System') {
+            steps {
+                script{
+                // Define an Artifactory server instance.
+                def server = Artifactory.newServer url: artifactoryUrl, username: username, password: password
+                } 
+            }
+        }
+
+        stage('Artifactory Download'){
+            steps {
+                script{
+                    // Obtain an Artifactory server instance, defined in Jenkins --> Manage:
+                    // def server = Artifactory.server SERVER_ID
+
+                    // Define an Artifactory server instance.
+                    def server = Artifactory.newServer url: artifactoryUrl, username: username, password: password
+                
+                    // Read the download specs:
+                    def downloadSpec = """{
+                        "files": [
+                                {
+                                    "pattern": "generic-binaries-local/generic-binaries-local/zVision/Installer"
+                                }
+                            ]
+                        }"""
+            
+                    // Download files from Artifactory:
+                    def buildInfo1 = server.download spec: downloadSpec
+                }
+            }
+        }
+        
+        stage('Assert') {
+            steps {
+                script{
+                        dir("${env.WORKSPACE}/zVision/Installer") {
+                            sh "pwd"
+                            def exists = fileExists 'DICOMRouterInstaller.nsi'
+						
+                            if (exists) {
+                                echo 'Yes'
+                            } else {
+                                echo 'No'
+                            }
+                        }
+                }
+            }
+        }
+    }
+}
