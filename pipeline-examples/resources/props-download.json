@@ -1,0 +1,9 @@
+{
+  "files": [
+    {
+      "pattern": "generic-binaries-local/zVision/Installer",
+      "target": "zVisionLocal/Installer/",
+      "props": "p1=v1;p2=v2"
+    }
+  ]
+}
