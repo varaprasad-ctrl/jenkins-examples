@@ -1,0 +1,474 @@
+def scmVars, codeCheckoutStage, buildPreparationStage, buildStage, deployStage
+
+pipeline{
+	agent{
+       label 'clario'
+    }
+	environment{
+		appVersion="${params.appVersion}"		
+		appVersionMajor="${params.appVersionMajor}"
+		appVersionMinor="${params.appVersionMinor}"
+		appVersionMajorPrevious="${params.appVersionMajorPrevious}"
+		appVersionMinorPrevious="${params.appVersionMinorPrevious}"
+	}
+	options{
+		buildDiscarder(logRotator(numToKeepStr: '15', daysToKeepStr: '10'))
+		disableConcurrentBuilds()
+	}
+	stages{
+		stage('Code Checkout'){
+			steps{
+				script{
+					try{
+					    deleteDir()
+						scmVars = checkout([$class: 'SubversionSCM', 
+						additionalCredentials: [], 
+						excludedCommitMessages: '', 
+						excludedRegions: '', 
+						excludedRevprop: '', 
+						excludedUsers: '', 
+						filterChangelog: false, 
+						ignoreDirPropChanges: false, 
+						includedRegions: '', 
+						locations: [[credentialsId: 'svnCreds', 
+							depthOption: 'infinity', 
+							ignoreExternalsOption: true, 
+							remote: "${params.svnUrl}"]], 
+							workspaceUpdater: [$class: 'UpdateUpdater']])
+						env.SVN_REVISION = scmVars.SVN_REVISION
+
+                        // Define an Artifactory server instance.
+                    	def server = Artifactory.newServer url: artifactoryUrl, username: username, password: password
+                
+						// Create the download specs:
+						def downloadSpec = """{
+							"files": [
+									{
+										"target": "${params.svnBranch}/admin/schema/create/insert/dictionary/WordMetaphone.csv",
+										"pattern": "generic-binaries-local/zVision/dev/admin/schema/create/insert/dictionary/WordMetaphone.csv"
+									},
+									{
+										"target": "${params.svnBranch}/projects/ClearCanvas/Dicom/ClearCanvas.Dicom.sdf",
+										"pattern": "generic-binaries-local/zVision/dev/projects/ClearCanvas/Dicom/ClearCanvas.Dicom.sdf"
+									},
+									{
+										"target": "${params.svnBranch}/Installer/node-v10.15.3-x64.msi",
+										"pattern": "generic-binaries-local/zVision/dev/Installer/node-v10.15.3-x64.msi"
+									},
+									{
+										"target": "${params.svnBranch}/Installer/python-3.8.1.exe",
+										"pattern": "generic-binaries-local/zVision/dev/Installer/python-3.8.1.exe"
+									},
+									{
+										"target": "${params.svnBranch}/projects/ClearCanvas/Dicom/Codec/ClarioJ2k/Dcm.Jpeg2000.ncb",
+										"pattern": "generic-binaries-local/zVision/dev/projects/ClearCanvas/Dicom/Codec/ClarioJ2k/Dcm.Jpeg2000.ncb"
+									},
+									{
+										"target": "${params.svnBranch}/test/automation/src/main/resources/drivers/msedgedriver.exe",
+										"pattern": "generic-binaries-local/zVision/dev/test/automation/src/main/resources/drivers/msedgedriver.exe"
+									},
+									{
+										"target": "${params.svnBranch}/test/automation/target/classes/drivers/chromedriver.exe",
+										"pattern": "generic-binaries-local/zVision/dev/test/automation/target/classes/drivers/chromedriver.exe"
+									},
+									{
+										"target": "${params.svnBranch}/web/app/extjs/7/classic/src/ext-all-debug.js",
+										"pattern": "generic-binaries-local/zVision/dev/web/app/extjs/7/classic/src/ext-all-debug.js"
+									}
+								]
+							}"""
+
+						// Download files from Artifactory:
+						buildInfo1 = server.download spec: downloadSpec
+                        
+						codeCheckoutStage = "<tr><td>Code Checkout</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						codeCheckoutStage = "<tr><td>Code Checkout</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+		stage('Build Preparation'){
+			steps{
+				script{
+					try{
+						bat"""
+						cd "${params.svnBranch}"
+						sed -i s/'replaceAppVersion'/'%appVersion%.%SVN_REVISION%'/g .\\server\\version.php
+						sed -i s/'replaceAppRevision'/'%SVN_REVISION%'/g .\\server\\version.php
+						sed -i s/'app'/'app-%SVN_REVISION%'/g .\\server\\version.php
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ClarioCommon\\ClarioCommon\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ClarioCommonDICOM\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\DicomRouter\\DicomRouter\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\DicomWorklistDriver\\DicomWorklistDriver\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ExamAssignment\\ExamAssignment\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\HL7Listener\\HL7Listener\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\HL7LogTool\\HL7LogTool\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\HL7QuickListener\\HL7QuickListener\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\HL7QuickSender\\HL7QuickSender\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\HL7Sender\\HL7Sender\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\IntegrationDaemon\\IntegrationDaemon\\Properties\\AssemblyInfo.cs
+						sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\CommandLine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\Debug\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\Interface\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\MasterPatientIndex\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\MasterPatientIndexSqlServer\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\Service\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ScreenGrabber\\ScreenGrabber\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\zvExtender\\zvExtender\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\AnalyticsEngine\\AnalyticsEngine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ReportingEngine\\ReportingEngine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\WebSocketManager\\WebSocketManager\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ClarioDesktopMonitor\\ClarioDesktopMonitor\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ExtenderLight\\ExtenderLight\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\MaintenanceEngine\\MaintenanceEngine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\DatabaseMigrationTool\\DatabaseMigrationTool\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\zvExtenderTest\\zvExtenderTest\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\HL7Router\\HL7Router\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\InsightsReportListener\\InsightsReportListener\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\ExamReportDistributionService\\ExamReportDistributionService\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyVersion.*]/AssemblyVersion(\\"%appVersion%.%SVN_REVISION%\\")]/g .\\projects\\AiNavigator\\AiNavigator\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ClarioCommon\\ClarioCommon\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ClarioCommonDICOM\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\DicomRouter\\DicomRouter\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\DicomWorklistDriver\\DicomWorklistDriver\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ExamAssignment\\ExamAssignment\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\HL7Listener\\HL7Listener\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\HL7LogTool\\HL7LogTool\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\HL7QuickListener\\HL7QuickListener\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\HL7QuickSender\\HL7QuickSender\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\HL7Sender\\HL7Sender\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\IntegrationDaemon\\IntegrationDaemon\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\CommandLine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\Debug\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\Interface\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\MasterPatientIndex\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\MasterPatientIndexSqlServer\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MasterPatientIndex\\Service\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ScreenGrabber\\ScreenGrabber\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\zvExtender\\zvExtender\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\AnalyticsEngine\\AnalyticsEngine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ReportingEngine\\ReportingEngine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\WebSocketManager\\WebSocketManager\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ClarioDesktopMonitor\\ClarioDesktopMonitor\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ExtenderLight\\ExtenderLight\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\MaintenanceEngine\\MaintenanceEngine\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\DatabaseMigrationTool\\DatabaseMigrationTool\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\zvExtenderTest\\zvExtenderTest\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\HL7Router\\HL7Router\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\InsightsReportListener\\InsightsReportListener\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\ExamReportDistributionService\\ExamReportDistributionService\\Properties\\AssemblyInfo.cs
+                        sed -i s/AssemblyFileVersion.*]/AssemblyFileVersion(\\"%SVN_REVISION%\\")]/g .\\projects\\AiNavigator\\AiNavigator\\Properties\\AssemblyInfo.cs"""					
+						buildPreparationStage = "<tr><td>Build Preparation</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						buildPreparationStage = "<tr><td>Build Preparation</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+		stage('Build'){
+			steps{
+				script{
+					try{
+						// Build C# tools
+					    bat"""					
+						cd ${params.svnBranch}\\projects
+						msbuild projects.sln /target:rebuild"""
+						
+						// Create and copy over the websource folder 
+						bat"""
+						cd ${params.svnBranch}\\web
+						if not exist app-%SVN_REVISION% mkdir app-%SVN_REVISION%
+						cd ..
+						if exist .\\websource-%SVN_REVISION% rmdir /s /q .\\websource-%SVN_REVISION%
+						xcopy .\\web\\app .\\web\\app-%SVN_REVISION% /E /I"""
+						
+						// Build php source
+						bat"""						
+						php ${params.svnBranch}\\server\\build\\ctrl\\source.php"""
+						
+						// Clean and copy to websource folder
+						bat"""
+						cd "${params.svnBranch}"
+						rmdir /Q /S .\\web\\app
+						rmdir /Q /s .\\web\\source
+						xcopy web .\\websource-%SVN_REVISION%\\web /E /I /J
+						xcopy server .\\websource-%SVN_REVISION%\\server /E /I /J"""
+						
+						// Create a version file text
+						bat"""
+						cd ${params.svnBranch}\\websource-%SVN_REVISION%\\web
+						echo %appVersion%.%SVN_REVISION%.%SPECIALREV% > version.txt
+						For /f "tokens=1-2 delims=/:" %%a in ('time /t') do (set mytime=%%a:%%b)
+                        echo %date% %mytime% UTC >> version.txt
+                        type version.txt"""
+						
+						// Build the Installers
+						bat"""
+						cd "${params.svnBranch}"
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\DICOMRouterInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\DICOMWorklistDriverInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\DICOMImageCountSyncInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\HL7ListenerInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\HL7SenderInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\ExamAssignmentInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\IntegrationDaemonInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\MPIInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\zvExtenderInstaller__silent.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\zvExtenderInstaller__minUI.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\zvExtenderInstaller__minUI_temp.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\AnalyticsEngine.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\ClarioDesktopMonitorInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\ClarioDesktopMonitorInstaller_silent.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\ReportingEngine.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\WebSocketManager.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\MaintenanceEngine.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\HL7RouterInstaller.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\InsightsReportListener.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\ExamReportDistributionService.nsi
+						makensis /DPRODUCT_VERSION=%appVersion%.%SVN_REVISION% .\\installer\\AINavigatorServiceInstaller.nsi"""
+						
+						// Certificates
+						bat"""
+						cd "${params.svnBranch}"						
+						signtool sign /f \\\\${params.deploymentServer}\\Common\\Certificate\\2023Jan18_CodeSigningCert.pfx /p Clario123! /tr http://timestamp.comodoca.com /td SHA256 installer\\zvExtenderDesktopInstaller__silent-%appVersion%.%SVN_REVISION%.exe						
+						signtool sign /f \\\\${params.deploymentServer}\\Common\\Certificate\\2023Jan18_CodeSigningCert.pfx /p Clario123! /tr http://timestamp.comodoca.com /td SHA256 installer\\zvExtenderDesktopInstaller__minUI-%appVersion%.%SVN_REVISION%.exe
+						signtool sign /f \\\\${params.deploymentServer}\\Common\\Certificate\\2023Jan18_CodeSigningCert.pfx /p Clario123! /tr http://timestamp.comodoca.com /td SHA256 installer\\zvExtenderDesktopInstaller__minUI_temp-%appVersion%.%SVN_REVISION%.exe
+						signtool sign /f \\\\${params.deploymentServer}\\Common\\Certificate\\2023Jan18_CodeSigningCert.pfx /p Clario123! /tr http://timestamp.comodoca.com /td SHA256 installer\\ClarioDesktopMonitor-%appVersion%.%SVN_REVISION%.exe
+						signtool sign /f \\\\${params.deploymentServer}\\Common\\Certificate\\2023Jan18_CodeSigningCert.pfx /p Clario123! /tr http://timestamp.comodoca.com /td SHA256 installer\\ClarioDesktopMonitor_silent-%appVersion%.%SVN_REVISION%.exe
+						rem signtool sign /f \\\\${params.deploymentServer}\\Common\\Certificate\\2023Jan18_CodeSigningCert.pfx /p Clario123! /tr http://timestamp.comodoca.com /td SHA256 projects\\ExtenderLight\\ExtenderLight\\bin\\x86\\Debug\\ExtenderLight.exe
+						"""
+						
+						// Copy over Desktop Extender installers
+					    bat"""
+						cd "${params.svnBranch}"
+					    mkdir websource-%SVN_REVISION%\\web\\downloads
+					    copy installer\\zvExtenderDesktopInstaller*.exe websource-%SVN_REVISION%\\web\\downloads
+					    rem copy projects\\ExtenderLight\\ExtenderLight\\bin\\x86\\Debug\\ExtenderLight.exe websource-%SVN_REVISION%\\web\\downloads
+					    rem copy projects\\ExtenderLight\\ExtenderLight\\bin\\x86\\Debug\\ExtenderLight.exe .\\installer"""
+					
+					    // Make the Extender Test zip file
+						bat"""
+					    cd ${params.svnBranch}\\projects\\zvExtenderTest\\zvExtenderTest\\bin\\Debug
+					    7z a -r -tzip ..\\..\\..\\..\\..\\installer\\zvExtenderTest-%appVersion%.%SVN_REVISION%.zip * -x!*.svn -x!*.config x!*.manifest x!zvExtenderTest.vshost.exe"""
+					
+						// Make a websource zip file
+						bat"""
+					    cd ${params.svnBranch}\\websource-%SVN_REVISION%
+					    7z a -r -tzip ..\\installer\\zVision-websource-%appVersion%.%SVN_REVISION%.zip * -x!web\\run-test.html -x!web\\app-test.js -x!*.svn					   
+					    rem Make a debug version						
+					    7z a -r -tzip ..\\installer\\zVision-websource-%appVersion%.DEBUG.zip * -x!web\\run-test.html -x!web\\app-test.js -x!*.svn"""
+						
+						// DB Update
+						bat"""
+						cd ${params.svnBranch}\\admin\\schema\\update
+						update.exe %appVersionMajor%.%appVersionMinor% concat silent
+						copy update-%appVersionMajor%.%appVersionMinor%.sql %appVersionMajor%\\update-%appVersion%.%SVN_REVISION%.sql
+						del update-%appVersionMajor%.%appVersionMinor%.sql
+						del update-log.txt
+						update.exe %appVersionMajor%.%appVersionMinor%.%SVN_REVISION%.%SPECIALREV% upgrade silent
+						del update.exe"""
+						
+						// Append version data to the update script
+						bat"""
+						cd ${params.svnBranch}\\admin\\schema\\update\\%appVersionMajor%
+						echo. >> update-%appVersion%.%SVN_REVISION%.sql
+						echo. >> update-%appVersion%.%SVN_REVISION%.sql
+						echo -- automatically added to update script by build-process to tag this DB with a build version
+						echo if not exists(select value from conf_Common where UQ_name = 'installedVersionNumber') >> update-%appVersion%.%SVN_REVISION%.sql
+						echo begin >> update-%appVersion%.%SVN_REVISION%.sql
+						echo  insert into conf_Common values ('installedVersionNumber', '%appVersion%.%SVN_REVISION%', 'Installed Version Number', 'this database is update to with this zVision revision number');  >> update-%appVersion%.%SVN_REVISION%.sql 
+						echo end  >> update-%appVersion%.%SVN_REVISION%.sql
+						echo else  >> update-%appVersion%.%SVN_REVISION%.sql
+						echo  update conf_Common set value = '%appVersion%.%SVN_REVISION%' where UQ_name = 'installedVersionNumber' >> update-%appVersion%.%SVN_REVISION%.sql  
+						echo GO   >> update-%appVersion%.%SVN_REVISION%.sql"""
+						
+						// Make the docs ZIP file
+						bat"""
+						cd ${params.svnBranch}\\docs
+						7z a -r -tzip ..\\installer\\docs-%appVersion%.%SVN_REVISION%.%SPECIALREV%.zip * -x!*.svn"""
+						
+						bat"""
+						cd ${params.svnBranch}\\admin\\maint\\iisHardening
+						7z a -r -tzip ..\\installer\\IISHardening-%appVersion%.%SVN_REVISION%.%SPECIALREV%.zip * -x!*.svn"""						
+						
+						// Build web and database installers
+					    bat"""
+					    cd ${params.svnBranch}\\admin\\installer
+						nuget restore Installer.sln
+						msbuild Installer.sln -p:Configuration=Release"""
+						
+						// Make the SQL ZIP file
+						bat"""
+						cd ${params.svnBranch}\\admin\\schema\\update
+						7z a -tzip ..\\..\\..\\installer\\db.updates-%appVersion%.%SVN_REVISION%.zip * -x!*/ -x!*.svn
+						7z a -tzip ..\\..\\..\\installer\\db.updates-%appVersion%.%SVN_REVISION%.zip %appVersionMajor%\\update-*.sql -x!*.svn
+						7z a -tzip ..\\..\\..\\installer\\db.updates-%appVersion%.%SVN_REVISION%.zip %appVersionMajorPrevious%\\%appVersionMinorPrevious%.sql -x!*.svn
+						cd ..\\create
+						7z a -r -tzip ..\\..\\..\\installer\\db.scripts-%appVersion%.%SVN_REVISION%.zip * -x!*.svn"""						
+						buildStage = "<tr><td>Build</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						buildStage = "<tr><td>Build</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+		stage('Deploy'){
+			steps{
+				script{
+					try{
+						// Get everything over to the Releases folder
+						withCredentials([usernamePassword(credentialsId: 'CTUser', passwordVariable: 'Password', usernameVariable: 'Username')])
+						{
+						bat"""
+						cd "${params.svnBranch}"
+						net use X: \\\\${params.deploymentServer}\\${params.deploymentRepo} ${Password} /USER:clariomedical\\${Username} /P:yes /Y
+						if not exist "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%" mkdir "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%"
+						move .\\installer\\*.exe "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%"
+						move .\\installer\\*.msi "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%"
+						move .\\installer\\*.zip "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%"
+						move .\\admin\\installer\\Web\\bin\\Release\\*.msi "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%"
+						move .\\admin\\installer\\Database\\bin\\Release\\*.msi "\\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%"
+						"""
+						}
+						
+						// Post build clean-up (largely not needed as long as the build is set to clean rebuild)
+						bat"""
+						cd "${params.svnBranch}"
+						rem del .\\web\\lib\\version.js
+						del .\\server\\version.php"""
+						
+						// Clean-up
+						bat"""
+						if exist ${params.appDirectory}\\web rmdir ${params.appDirectory}\\web /S /Q
+						if exist ${params.appDirectory}\\server rmdir ${params.appDirectory}\\server /S /Q"""
+						
+						// Clean-up for nightly multi
+						if(env.JOB_NAME.contains("NightlyBuild"))
+						{
+						bat"""
+						if exist ${params.appDirectoryMulti}\\web rmdir ${params.appDirectoryMulti}\\web /S /Q
+						if exist ${params.appDirectoryMulti}\\server rmdir ${params.appDirectoryMulti}\\server /S /Q
+						"""
+						}
+						
+						// Deploy websource to target directories
+						bat"""
+						7z x \\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%\\zVision-websource-%appVersion%.%SVN_REVISION%.zip -o${params.appDirectory} -aoa """
+						
+						// Deploy websource to target directories for nightly multi
+						if(env.JOB_NAME.contains("NightlyBuild"))
+						{
+						bat"""
+						7z x \\\\${params.deploymentServer}\\${params.deploymentRepo}\\builds\\%appVersion%.%SVN_REVISION%\\zVision-websource-%appVersion%.%SVN_REVISION%.zip -o${params.appDirectoryMulti} -aoa 
+						"""
+						}
+						
+						// DB restore
+						if(env.dbRestoreFlag=='true')
+						{
+						withCredentials([usernamePassword(credentialsId: 'dbCreds', passwordVariable: 'Password', usernameVariable: 'Username')])
+						{
+						bat"""
+						cd ${params.svnBranch}\\admin\\schema\\update\\%appVersionMajor%
+						setlocal enabledelayedexpansion
+						sqlcmd -S ${params.dbServer} -U ${Username} -P ${Password} -d ${params.dbName} -Q "exec adm.DbRestore '${params.dbName}', '${params.dbBackup}'"
+						sqlcmd -S ${params.dbServer} -U ${Username} -P ${Password} -d ${params.dbName} -Q "exec ${params.dbName}.demo.run 3,120"
+						sqlcmd -S ${params.dbServer} -U ${Username} -P ${Password} -d ${params.dbName} -Q "update conf_WebSocketServer set socketUrl = 'https://devtest3.clariomedical.com:3000'"
+						for %%G in (*.sql) do (
+						echo %%~nxG 
+						if not %%~nxG ==update-%appVersion%.%SVN_REVISION%.sql sqlcmd -S ${params.dbServer} -U ${Username} -P ${Password} -d ${params.dbName} -i"%%G" 
+						)
+						"""
+						}
+						}
+										
+						//DB update
+						withCredentials([usernamePassword(credentialsId: 'dbCreds', passwordVariable: 'Password', usernameVariable: 'Username')])
+						{
+						bat"""
+						cd ${params.svnBranch}\\admin\\schema\\update\\%appVersionMajor%
+						if exist update-%appVersion%.%SVN_REVISION%.sql sqlcmd -S ${params.dbServer} -U ${Username} -P ${Password} -d ${params.dbName} -i update-%appVersion%.%SVN_REVISION%.sql -v dbPath="${params.appDirectory}" -v dbSession="${params.dbSession}" dbName="${params.dbName}" > ${params.appDirectory}\\sqlupdate-%SVN_REVISION%.log """
+						}
+						
+						//DB update for multi
+						if(env.multiFlag=='true')
+						{
+						withCredentials([usernamePassword(credentialsId: 'dbCreds', passwordVariable: 'Password', usernameVariable: 'Username')])
+						{						
+						bat"""
+						cd ${params.svnBranch}\\admin\\schema\\update\\%appVersionMajor%
+						if exist update-%appVersion%.%SVN_REVISION%.sql sqlcmd -S ${params.dbServer} -U ${Username} -P ${Password} -d ${params.dbNameMulti} -i update-%appVersion%.%SVN_REVISION%.sql -v dbPath="${params.appDirectoryMulti}" -v dbSession="${params.dbSessionMulti}" dbName="${params.dbNameMulti}" > ${params.appDirectoryMulti}\\sqlupdate-%SVN_REVISION%.log  
+						"""
+						}
+						}
+
+						// Deploying connect.ini and constant.ini
+						bat"""
+						copy /Y \\\\${params.deploymentServer}\\${params.deploymentRepo}\\config\\connect.ini ${params.appDirectory}\\server\\config\\connect.ini
+						copy /Y \\\\${params.deploymentServer}\\${params.deploymentRepo}\\config\\constant.ini ${params.appDirectory}\\server\\config\\constant.ini
+						"""
+						
+						// Deploying connect.ini and constant.ini multi
+						if(env.multiFlag=='true')
+						{
+						bat"""
+						copy /Y \\\\${params.deploymentServer}\\${params.deploymentRepo}\\config\\connect_multi.ini ${params.appDirectoryMulti}\\server\\config\\connect.ini
+						copy /Y \\\\${params.deploymentServer}\\${params.deploymentRepo}\\config\\constant_multi.ini ${params.appDirectoryMulti}\\server\\config\\constant.ini
+						"""
+						}
+						deployStage = "<tr><td>Deploy</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						deployStage = "<tr><td>Deploy</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+   }
+   post {
+		always{
+            sendNotifications(currentBuild.result, params.emailDL, codeCheckoutStage, buildPreparationStage, buildStage, deployStage)
+		}       
+	}
+}
+
+def sendNotifications(String buildStatus = 'STARTED', emailDL, codeCheckoutStage, buildPreparationStage, buildStage, deployStage){	
+	buildStatus = buildStatus ?: 'SUCCESS'
+	//Default Values
+	def colorName = 'RED'
+	def colorCode = '#FF0000'
+	def buildNameString = "${env.JOB_NAME}"
+	def buildName = (buildNameString.split('/'))[(buildNameString.split('/')).size() -1]
+	def subject = "Jenkins Build Status for ${buildName} --> [${buildStatus}]"
+	if (buildStatus == 'STARTED'){
+		colorCode = '#0033FF'
+	}
+	else if (buildStatus == 'SUCCESS'){
+		colorCode = '#00FF00'
+	}
+	else{
+		colorCode = '#FF0000'
+	}
+	def summary = """<table border="1" style="font-family: Verdana, Georgia, Serif;font-size:12px" cellpadding="10" cellspacing="10">
+					<tr><th colspan="2">PIPELINE EXECUTION SUMMARY</th></tr>
+					<tr><td><strong>Build Status</strong></td><td><span style="color:${colorCode}">${buildStatus}</span></td></tr>
+					${codeCheckoutStage}
+					${buildPreparationStage}
+					${buildStage}
+					${deployStage}
+					</table>
+					<p><STRONG style="color:${colorCode};font-family: Verdana, Georgia, Serif;font-size:12px">See attached log file for more details</strong></p>"""
+	emailext body: "${summary}", mimeType: 'text/html', attachLog: true, from: 'build@intelerad.com', replyTo: '', subject: "${subject}", to: "${emailDL}"	
+}

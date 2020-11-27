@@ -10,7 +10,7 @@ pipeline {
             }
         }
 
-        stage('Artifactory Download'){
+        stage('Artifactory Download') {
             steps {
                 script{
                     // Obtain an Artifactory server instance, defined in Jenkins --> Manage:

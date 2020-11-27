@@ -1,0 +1,139 @@
+def scmVars, codeCheckoutStage, buildPreparationStage, buildStage, deployStage
+
+pipeline{
+	agent{
+       label 'clario'
+    }
+	environment{
+		appVersion="${params.appVersion}"		
+		appVersionMajor="${params.appVersionMajor}"
+		appVersionMinor="${params.appVersionMinor}"
+		appVersionMajorPrevious="${params.appVersionMajorPrevious}"
+		appVersionMinorPrevious="${params.appVersionMinorPrevious}"
+	} 
+	options{
+		buildDiscarder(logRotator(numToKeepStr: '15', daysToKeepStr: '10'))
+		disableConcurrentBuilds()
+	}
+	stages{
+		stage('Code Checkout'){
+			steps{
+				script{
+					try{
+					    deleteDir()
+						scmVars = checkout([$class: 'SubversionSCM', 
+						additionalCredentials: [], 
+						excludedCommitMessages: '', 
+						excludedRegions: '', 
+						excludedRevprop: '', 
+						excludedUsers: '', 
+						filterChangelog: false, 
+						ignoreDirPropChanges: false, 
+						includedRegions: '', 
+						locations: [[credentialsId: 'svnCreds', 
+							depthOption: 'infinity', 
+							ignoreExternalsOption: true, 
+							remote: "${params.svnUrl}"]], 
+							workspaceUpdater: [$class: 'UpdateUpdater']])
+						env.SVN_REVISION = scmVars.SVN_REVISION
+						codeCheckoutStage = "<tr><td>Code Checkout</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						codeCheckoutStage = "<tr><td>Code Checkout</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+		stage('Deploy'){
+			steps{
+				script{
+					try{
+						// Define an Artifactory server instance.
+                    	def server = Artifactory.newServer url: artifactoryUrl, username: username, password: password
+                
+						// Create the upload spec.
+						def uploadSpec = """{
+							"files": [
+									{
+										"pattern": "${params.svnBranch}/admin/schema/create/insert/dictionary/WordMetaphone.csv",
+										"target": "generic-binaries-local/zVision/dev/admin/schema/create/insert/dictionary/WordMetaphone.csv"
+									},
+									{
+										"pattern": "${params.svnBranch}/projects/ClearCanvas/Dicom/ClearCanvas.Dicom.sdf",
+										"target": "generic-binaries-local/zVision/dev/projects/ClearCanvas/Dicom/ClearCanvas.Dicom.sdf"
+									},
+									{
+										"pattern": "${params.svnBranch}/Installer/node-v10.15.3-x64.msi",
+										"target": "generic-binaries-local/zVision/dev/Installer/node-v10.15.3-x64.msi"
+									},
+									{
+										"pattern": "${params.svnBranch}/Installer/python-3.8.1.exe",
+										"target": "generic-binaries-local/zVision/dev/Installer/python-3.8.1.exe"
+									},
+									{
+										"pattern": "${params.svnBranch}/projects/ClearCanvas/Dicom/Codec/ClarioJ2k/Dcm.Jpeg2000.ncb",
+										"target": "generic-binaries-local/zVision/dev/projects/ClearCanvas/Dicom/Codec/ClarioJ2k/Dcm.Jpeg2000.ncb"
+									},
+									{
+										"pattern": "${params.svnBranch}/test/automation/src/main/resources/drivers/msedgedriver.exe",
+										"target": "generic-binaries-local/zVision/dev/test/automation/src/main/resources/drivers/msedgedriver.exe"
+									},
+									{
+										"pattern": "${params.svnBranch}/test/automation/target/classes/drivers/chromedriver.exe",
+										"target": "generic-binaries-local/zVision/dev/test/automation/target/classes/drivers/chromedriver.exe"
+									},
+									{
+										"pattern": "${params.svnBranch}/web/app/extjs/7/classic/src/ext-all-debug.js",
+										"target": "generic-binaries-local/zVision/dev/web/app/extjs/7/classic/src/ext-all-debug.js"
+									}
+								]
+							}"""
+						// Upload to Artifactory.
+						buildInfo1 = server.upload spec: uploadSpec
+						// cd "${params.svnBranch}"
+						deployStage = "<tr><td>Deploy</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						deployStage = "<tr><td>Deploy</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+   }
+   post {
+		always{
+            sendNotifications(currentBuild.result, params.emailDL, codeCheckoutStage, deployStage)
+		}       
+	}
+}
+
+def sendNotifications(String buildStatus = 'STARTED', emailDL, codeCheckoutStage, deployStage){	
+	buildStatus = buildStatus ?: 'SUCCESS'
+	//Default Values
+	def colorName = 'RED'
+	def colorCode = '#FF0000'
+	def buildNameString = "${env.JOB_NAME}"
+	def buildName = (buildNameString.split('/'))[(buildNameString.split('/')).size() -1]
+	def subject = "Jenkins Build Status for ${buildName} --> [${buildStatus}]"
+	if (buildStatus == 'STARTED'){
+		colorCode = '#0033FF'
+	}
+	else if (buildStatus == 'SUCCESS'){
+		colorCode = '#00FF00'
+	}
+	else{
+		colorCode = '#FF0000'
+	}
+	def summary = """<table border="1" style="font-family: Verdana, Georgia, Serif;font-size:12px" cellpadding="10" cellspacing="10">
+					<tr><th colspan="2">PIPELINE EXECUTION SUMMARY</th></tr>
+					<tr><td><strong>Build Status</strong></td><td><span style="color:${colorCode}">${buildStatus}</span></td></tr>
+					${codeCheckoutStage}
+					${deployStage}
+					</table>
+					<p><STRONG style="color:${colorCode};font-family: Verdana, Georgia, Serif;font-size:12px">See attached log file for more details</strong></p>"""
+	emailext body: "${summary}", mimeType: 'text/html', attachLog: true, from: 'build@intelerad.com', replyTo: '', subject: "${subject}", to: "${emailDL}"	
+}

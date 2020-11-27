@@ -1,0 +1,55 @@
+def scmVars, codeCheckoutStage, buildPreparationStage, buildStage, deployStage
+
+pipeline{
+	agent{
+       label 'clario'
+    }
+	environment{
+		appVersion="${params.appVersion}"		
+		appVersionMajor="${params.appVersionMajor}"
+		appVersionMinor="${params.appVersionMinor}"
+		appVersionMajorPrevious="${params.appVersionMajorPrevious}"
+		appVersionMinorPrevious="${params.appVersionMinorPrevious}"
+	} 
+	options{
+		buildDiscarder(logRotator(numToKeepStr: '15', daysToKeepStr: '10'))
+		disableConcurrentBuilds()
+	}
+	stages{
+		stage('Code Checkout'){
+			steps{
+				script{
+					try{
+					    deleteDir()
+						scmVars = checkout([$class: 'SubversionSCM', 
+						additionalCredentials: [], 
+						excludedCommitMessages: '', 
+						excludedRegions: '', 
+						excludedRevprop: '', 
+						excludedUsers: '', 
+						filterChangelog: false, 
+						ignoreDirPropChanges: false, 
+						includedRegions: '', 
+						locations: [[credentialsId: 'svnCreds', 
+							depthOption: 'infinity', 
+							ignoreExternalsOption: true, 
+							remote: "${params.svnUrl}"]], 
+							workspaceUpdater: [$class: 'UpdateUpdater']])
+						env.SVN_REVISION = scmVars.SVN_REVISION
+
+						bat"""
+						cd "${params.svnBranch}"
+						echo The current directory is %CD%"""
+							
+						codeCheckoutStage = "<tr><td>Code Checkout</td><td>SUCCESS</td></tr>"
+					}
+					catch(e){
+						currentBuild.result = "FAILED"
+						codeCheckoutStage = "<tr><td>Code Checkout</td><td>FAILED</td></tr>"
+						throw e
+					}
+				}	   
+			}
+		}
+   }
+}
